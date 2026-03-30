@@ -1,0 +1,21 @@
+[project]
+name = "project-mobile"
+version = "0.1.0"
+description = "Analyzing the Impact of Temperature and Precipitation on Mobility Patterns in Swiss Cities A Comparative Analysis of Zurich and Basel"
+readme = "README.md"
+requires-python = ">=3.13.2"
+dependencies = [
+    "pandas>=3.0.1",
+    "psycopg2-binary>=2.9.11",
+    "pyarrow>=23.0.1",
+    "pygments>=2.19.2",
+    "requests>=2.33.0",
+    "sqlalchemy>=2.0.48",
+    "tqdm>=4.67.3",
+]
+
+[dependency-groups]
+dev = [
+    "pgcli>=4.4.0",
+    "psycopg[binary]>=3.3.3",
+]

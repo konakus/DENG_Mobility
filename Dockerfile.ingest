@@ -1,0 +1,11 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir pandas sqlalchemy psycopg2-binary requests tqdm
+
+COPY ingest_meteo.py /app/ingest_meteo.py
+COPY ingest_traffic.py /app/ingest_traffic.py
+COPY data /app/data
+
+ENTRYPOINT ["python"]
