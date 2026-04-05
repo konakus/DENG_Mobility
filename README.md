@@ -759,6 +759,6 @@ It covers the core concepts of a small data engineering workflow using Docker an
 ## Authors
 
 **Susanne Pfenninger**
-**Diego Gonzales**
+**Diego Gonzalez**
 
 ---
