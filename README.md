@@ -31,6 +31,29 @@ This allows analysis of patterns such as:
 
 ---
 
+## Transformations
+
+After ingestion, both datasets undergo basic transformation steps before being stored in the final table.
+
+### Weather Data
+- Aggregated to daily level (e.g., average temperature and windspeed)
+- Renamed and standardized column names
+- Rounded numerical values to one decimal place for consistency
+
+### Traffic Data
+- Selected relevant columns (e.g., location, date, traffic counts)
+- Standardized column names and formats
+- Ensured correct data types (e.g., dates, numeric values)
+
+### Final Dataset
+- Joined weather and traffic data on the date field
+- Created a unified table for downstream analysis
+- Ensured clean and consistent schema across all columns
+
+These transformations ensure that the data is clean, consistent, and ready for analysis and visualization.
+
+---
+
 ## Architecture
 
 The project is fully containerized using Docker Compose.
@@ -72,29 +95,34 @@ ingest_traffic  →
 
 ### 1. Start the system
 
+Start Docker Desktop
+
 ```bash
 docker compose up -d
 ```
 
 ---
 
-### 2. Access Services
 
-| Service | URL                   |
-| ------- | --------------------- |
-| Airflow | http://localhost:8086 |
-| pgAdmin | http://localhost:8085 |
+### 2. Configure pgAdmin
 
----
-
-### 3. Configure pgAdmin
+```
+http://localhost:8085
+```
 
 Create a new server with:
 
-* Host: `postgres`
-* Port: `5432`
-* User: `postgres`
-* Password: `postgres`
+### General tab
+
+* **Name:** `meteo-postgres`
+
+### Connection tab
+
+* **Host name/address:** `pgdatabase`
+* **Port:** `5432`
+* **Maintenance database:** `meteo`
+* **Username:** `root`
+* **Password:** `meteo123`
 
 ---
 
@@ -105,42 +133,44 @@ Create a new server with:
 Go to:
 
 ```
-http://localhost:8080
+http://localhost:8086
 ```
 
----
-
-### 2. Enable the DAG
-
-* Find: `zurich_mobility_pipeline`
-* Toggle it ON (unpause)
+* Username: `admin`
+* Password: `admin`
 
 ---
 
-### 3. Trigger the DAG
+### 2. Enable and Trigger the DAG
 
-Click play button
+* Find the instance: `zurich_mobility_pipeline`
+1) Toggle it ON (unpause)
+2) Click the play button
+3) Click on the DAG name to see the pipeline run
+
+![Screenshot](images/Airflow_howto.png)
 
 ---
 
 ### 4. Monitor execution
 
-* All tasks should turn **green**
+* All of the three tasks should turn **green** after some time.
 * Tasks:
 
   * ingest_weather
   * ingest_traffic
   * transform_daily
 
+![Screenshot](images/Airflow_tasks.png)
+
+* If all tasks are **green**, The table is built and can be queried in pgAdmin in the database **traffic_zurich**.
+
 ---
 
 ## Data Output
 
-The final table:
+The final table: **mobility_weather_daily**
 
-```
-mobility_weather_daily
-```
 
 Contains:
 
@@ -155,7 +185,7 @@ Contains:
 
 ## Verification
 
-Run in pgAdmin (in the Database: traffic_zurich):
+Run in pgAdmin (in the Database: **traffic_zurich**):
 
 ```sql
 SELECT COUNT(*) FROM mobility_weather_daily;
@@ -189,7 +219,7 @@ python transform_zurich_daily.py
 
 ## Reproducibility
 
-To reproduce the project:
+To reproduce the project (overview):
 
 1. Clone repository
 2. Run:
@@ -207,12 +237,14 @@ To reproduce the project:
 
 * This midterm focuses on the Zurich pipeline only
 * Basel-related components are not used
+* This midterm focuses on the local pipeline (PostgreSQL + Airflow). Cloud storage and Terraform-based infrastructure will be implemented in the final stage.
 * The pipeline is designed to be fully reproducible
 
 ---
 
 ## Future Improvements
 
+* Add cloud-storage (will be done after midterm)
 * Extend to multiple cities (e.g., Basel)
 * Add more data sources
 * Improve feature engineering
