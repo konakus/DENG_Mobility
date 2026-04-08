@@ -2,14 +2,15 @@
 
 ## Overview
 
-This project implements a data engineering pipeline to analyze how weather influences urban mobility in Zurich.
+This project implements a **fully containerized data engineering pipeline** to analyze how weather influences urban mobility in Zurich.
 
 The pipeline integrates:
+* Weather data from the Open-Meteo API 
+https://open-meteo.com/en/docs/historical-weather-api
+* Traffic data from Zurich mobility datasets 
+https://data.stadt-zuerich.ch/dataset/ted_taz_verkehrszaehlungen_werte_fussgaenger_velo 
 
-* Weather data from the Open-Meteo API
-* Traffic data from Zurich mobility datasets
-
-The data is ingested, transformed, and stored in a PostgreSQL database.
+The data is ingested, transformed, aggregated, and stored in a PostgreSQL database.
 Apache Airflow is used to orchestrate the entire workflow.
 
 ---
@@ -18,16 +19,146 @@ Apache Airflow is used to orchestrate the entire workflow.
 
 **Persona:** Urban Mobility Analyst
 
-The goal is to provide a clean, daily aggregated dataset that combines:
-
+The goal is to analyze how weather conditions influence urban mobility in Zürich.
+The user needs a clean, daily aggregated dataset that combines:
 * weather conditions
 * mobility indicators
 
-This allows analysis of patterns such as:
+### Problem
+The data is currently:
+*  distributed across multiple sources
+*  inconsistent in format
+*  not directly usable for analysis
 
+### Solution
+
+The pipeline integrates, cleans, and aggregates the data into a unified dataset.
+
+### What this enables
+This allows analysis of patterns such as:
 * How precipitation and temperature affects traffic volume
 * Differences between weekdays and weekends
 * Seasonal mobility trends
+
+**The architecture below implements this use case**
+
+---
+
+## Architecture
+
+### System Architecture (Overview)
+```text
+Docker Compose
+│
+├── PostgreSQL (pgdatabase)
+│     └── stores raw + transformed data
+│
+├── pgAdmin
+│     └── database UI (http://localhost:8085)
+│
+├── Airflow
+│     └── orchestrates pipeline (http://localhost:8086)
+│
+└── Ingestion + Transformation (Python)
+      ├── ingest_meteo.py
+      ├── ingest_traffic.py
+      └── transform_zurich_daily.py
+```
+
+### Data Flow
+```text
+         Open-Meteo API        CSV Files
+                │                  │
+                ▼                  ▼
+        ingest_meteo.py    ingest_traffic.py
+                │                  │
+                └───────┬──────────┘
+                        ▼
+              PostgreSQL (raw tables)
+                        ▼
+           transform_zurich_daily.py
+                        ▼
+           mobility_weather_daily
+                        ▼
+                   pgAdmin UI
+```
+### Workflow (Airflow DAG)
+```text
+ingest_weather
+ingest_traffic
+        ↓
+transform_daily
+        ↓
+mobility_weather_daily
+```
+---
+## Ingestion Pipeline
+
+### Scripts
+- ingest_meteo.py → API ingestion
+- ingest_traffic.py → CSV ingestion
+
+### Characteristics
+The ingestion pipeline is batch-based, modular, reusable, and well-documented, ensuring maintainability and flexibility.
+
+### Process
+The ingestion process fetches data from APIs and CSV files, converts it into pandas DataFrames, and loads it into PostgreSQL for further analysis.
+
+### Example (Docker)
+```text
+docker compose up -d
+
+docker run --rm \
+  --network=project_mobile_default \
+  project_ingest:dev /app/ingest_meteo.py \
+  --user=root \
+  --password=meteo123 \
+  --host=pgdatabase \
+  --port=5432 \
+  --db=meteo \
+  --table=historical_weather \
+  --latitude=47.3769 \
+  --longitude=8.5417 \
+  --start_date=2025-01-01 \
+  --end_date=2025-01-07
+
+  docker compose down
+```
+---
+## Local Storage (PostgreSQL in Docker)
+The PostgreSQL database is running locally in Docker to store both raw and processed data.
+
+### Access via pgAdmin
+The database can be accessed through **pgAdmin**, which provides a graphical user interface for querying and managing the data.
+
+Open pgAdmin in your browser:
+```
+http://localhost:8085
+```
+Login-Data:
+Email: admin@admin.com
+PWD: admin123
+
+### Connect to the Database
+Right-click on **Servers → Register → Server**
+
+Then enter:
+**General**
+Name: meteo-postgres
+**Connection**
+Host: pgdatabase
+Port: 5432
+Username: root
+Password: meteo123
+
+### Query the Data
+- Select Database
+- Open Query Tool (Right-click on the database → Query Tool)
+- Run Query
+
+SELECT * FROM historical_weather LIMIT 10;
+
+SELECT * FROM traffic_data LIMIT 10;
 
 ---
 
@@ -77,15 +208,24 @@ ingest_traffic  →
 ## Project Structure
 
 ```
-.
+project_mobile/
+│
 ├── dags/
 │   └── zurich_pipeline.py
+│
 ├── ingest_meteo.py
 ├── ingest_traffic.py
 ├── transform_zurich_daily.py
+│
 ├── docker-compose.yml
 ├── Dockerfile.ingest
+│
 ├── initdb/
+│   └── create_databases.sql
+│
+├── data/
+│   └── traffic_zurich.csv
+│
 └── README.md
 ```
 
@@ -148,7 +288,7 @@ http://localhost:8086
 2) Click the play button
 3) Click on the DAG name to see the pipeline run
 
-![Screenshot](images/Airflow_howto.png)
+![Screenshot](images/airflow_howto.png)
 
 ---
 
@@ -161,7 +301,7 @@ http://localhost:8086
   * ingest_traffic
   * transform_daily
 
-![Screenshot](images/Airflow_tasks.png)
+![Screenshot](images/airflow_tasks.png)
 
 * If all tasks are **green**, The table is built and can be queried in pgAdmin in the database **traffic_zurich**.
 
