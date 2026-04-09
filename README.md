@@ -191,6 +191,9 @@ docker compose up -d
 http://localhost:8085
 ```
 
+Login-Data:
+- Email: admin@admin.com
+- PWD: admin123
 
 Create a new server with:
 
