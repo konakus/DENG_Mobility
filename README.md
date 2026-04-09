@@ -1,17 +1,16 @@
 # DENG Mobility Project – Zurich Pipeline (Midterm)
 
+This project implements a containerized data pipeline that integrates weather and mobility data to analyze urban traffic patterns in Zurich.
+
 ## Overview
 
-This project implements a **fully containerized data engineering pipeline** to analyze how weather influences urban mobility in Zurich.
+The project combines weather data from APIs and mobility data from public datasets into a unified, daily aggregated dataset. 
 
 The pipeline integrates:
-* Weather data from the Open-Meteo API 
-https://open-meteo.com/en/docs/historical-weather-api
-* Traffic data from Zurich mobility datasets 
-https://data.stadt-zuerich.ch/dataset/ted_taz_verkehrszaehlungen_werte_fussgaenger_velo 
+* Weather data from the [Open-Meteo API](https://open-meteo.com/en/docs/historical-weather-api)
+* Traffic data from [Zurich mobility datasets](https://data.stadt-zuerich.ch/dataset/ted_taz_verkehrszaehlungen_werte_fussgaenger_velo)
 
-The data is ingested, transformed, aggregated, and stored in a PostgreSQL database.
-Apache Airflow is used to orchestrate the entire workflow.
+The data is ingested, transformed, and stored in PostgreSQL, while Apache Airflow orchestrates the pipeline execution.
 
 ---
 
@@ -19,7 +18,7 @@ Apache Airflow is used to orchestrate the entire workflow.
 
 **Persona:** Urban Mobility Analyst
 
-The goal is to analyze how weather conditions influence urban mobility in Zürich.
+The goal is to analyze how weather conditions influence urban mobility in Zurich.
 The user needs a clean, daily aggregated dataset that combines:
 * weather conditions
 * mobility indicators
@@ -36,11 +35,11 @@ The pipeline integrates, cleans, and aggregates the data into a unified dataset.
 
 ### What this enables
 This allows analysis of patterns such as:
-* How precipitation and temperature affects traffic volume
+* How precipitation and temperature affect traffic volume
 * Differences between weekdays and weekends
 * Seasonal mobility trends
 
-**The architecture below implements this use case**
+**The following architecture and pipeline design implement this use case end-to-end.**
 
 ---
 
@@ -82,6 +81,22 @@ Docker Compose
                         ▼
                    pgAdmin UI
 ```
+### Repository Overview
+
+The most relevant parts of the repository are:
+
+| Component                     | Purpose                                      |
+|------------------------------|----------------------------------------------|
+| `dags/`                      | Airflow DAG definition                       |
+| `ingest_meteo.py`            | Weather data ingestion from API              |
+| `ingest_traffic.py`          | Traffic data ingestion from CSV              |
+| `transform_zurich_daily.py`  | Data transformation and aggregation          |
+| `docker-compose.yml`         | Defines and runs Docker services             |
+| `Dockerfile.ingest`          | Builds the ingestion container image         |
+| `initdb/`                    | Database initialization scripts              |
+| `data/`                      | Input dataset (Zurich traffic CSV)           |
+| `README.md`                  | Project documentation and instructions       |
+
 ### Workflow (Airflow DAG)
 ```text
 ingest_weather
@@ -92,183 +107,9 @@ transform_daily
 mobility_weather_daily
 ```
 
----
+### Project Structure
 
-## Reset and Restart the Project
-
-This section describes how to stop, reset, and restart the Docker-based environment.
-
-### Stop the Project
-
-To stop all running containers, use:
-
-```bash
-docker compose down
-```
-This stops and removes the containers but keeps the stored data (volumes).
-
-### Reset the Project
-To remove all containers and volumes, use:
-
-```bash
-docker compose down -v
-```
-
-> Warning: `docker compose down -v` deletes all stored PostgreSQL data.
-
-### Restart the Project
-To start the system again after stopping or resetting:
-```bash
-docker compose up -d
-```
-This will recreate and start all services defined in the Docker Compose file.
-
-### Reinitialize the Data
-If the project was reset using -v, the database is empty and must be repopulated.
-You need to rerun the ingestion pipeline, for example:
-```bash
-docker run --rm \
-  --network=project_mobile_default \
-  project_ingest:dev /app/ingest_meteo.py \
-  --user=root \
-  --password=meteo123 \
-  --host=pgdatabase \
-  --port=5432 \
-  --db=meteo \
-  --table=historical_weather \
-  --latitude=47.3769 \
-  --longitude=8.5417 \
-  --start_date=2025-01-01 \
-  --end_date=2025-01-07
-```
-
-Alternatively, the pipeline can be triggered via Airflow.
-
----
-## Ingestion Pipeline
-
-### Scripts
-- ingest_meteo.py → API ingestion
-- ingest_traffic.py → CSV ingestion
-
-### Characteristics
-The ingestion pipeline is batch-based, modular, reusable, and well-documented, ensuring maintainability and flexibility.
-
-### Process
-The ingestion process fetches data from APIs and CSV files, converts it into pandas DataFrames, and loads it into PostgreSQL for further analysis.
-
-### Dockerfile.ingest
-`Dockerfile.ingest` is used to build a dedicated Docker image for the ingestion scripts. It provides the required Python environment and dependencies and copies the ingestion files into the container. This allows the ingestion process to run in a reproducible and isolated environment.
-
-### Example (Docker)
 ```text
-docker compose up -d
-```
-```text
-docker build -f Dockerfile.ingest -t project_ingest:dev .
-```
-```text
-docker run --rm \
-  --network=project_mobile_default \
-  project_ingest:dev /app/ingest_meteo.py \
-  --user=root \
-  --password=meteo123 \
-  --host=pgdatabase \
-  --port=5432 \
-  --db=meteo \
-  --table=historical_weather \
-  --latitude=47.3769 \
-  --longitude=8.5417 \
-  --start_date=2025-01-01 \
-  --end_date=2025-01-07
-```
-
----
-## Local Storage (PostgreSQL in Docker)
-The PostgreSQL database is running locally in Docker to store both raw and processed data.
-
-### Access via pgAdmin
-The database can be accessed through **pgAdmin**, which provides a graphical user interface for querying and managing the data.
-
-Open pgAdmin in your browser:
-```text
-http://localhost:8085
-```
-Login-Data:
-- Email: admin@admin.com
-- PWD: admin123
-
-### Connect to the Database
-Right-click on **Servers → Register → Server**
-
-Then enter:
-**General**
-- Name: meteo-postgres
-**Connection**
-- Host: pgdatabase
-- Port: 5432
-- Username: root
-- Password: meteo123
-
-### Query the Data
-After connecting:
-- Select a database (e.g., meteo or traffic_zurich)
-- Right-click → Query Tool
-- Run a query
-```text
-SELECT * FROM historical_weather LIMIT 10;
-```
-```text
-SELECT * FROM traffic_data LIMIT 10;
-```
----
-
-## Transformations
-
-After ingestion, both datasets undergo basic transformation steps before being stored in the final table.
-
-### Weather Data
-- Aggregated to daily level (e.g., average temperature and windspeed)
-- Renamed and standardized column names
-- Rounded numerical values to one decimal place for consistency
-
-### Traffic Data
-- Selected relevant columns (e.g., location, date, traffic counts)
-- Standardized column names and formats
-- Ensured correct data types (e.g., dates, numeric values)
-
-### Final Dataset
-- Joined weather and traffic data on the date field
-- Created a unified table for downstream analysis
-- Ensured clean and consistent schema across all columns
-
-These transformations ensure that the data is clean, consistent, and ready for analysis and visualization.
-
----
-
-## Architecture
-
-The project is fully containerized using Docker Compose.
-
-**Components:**
-
-* PostgreSQL → data storage
-* pgAdmin → database UI
-* Airflow → pipeline orchestration
-
-**Pipeline (Airflow DAG):**
-
-```
-ingest_weather  →  
-                  → transform_daily → mobility_weather_daily
-ingest_traffic  →
-```
-
----
-
-## Project Structure
-
-```
 project_mobile/
 │
 ├── dags/
@@ -289,41 +130,81 @@ project_mobile/
 │
 └── README.md
 ```
+---
+## Ingestion Pipeline
+
+The ingestion pipeline ensures that raw data is reliably loaded into PostgreSQL as the foundation for downstream transformations.
+
+### Scripts
+- ingest_meteo.py → API ingestion
+- ingest_traffic.py → CSV ingestion
+
+### Characteristics
+The ingestion pipeline is batch-based, modular, reusable, and well-documented, ensuring maintainability and flexibility.
+
+### Process
+The ingestion process fetches data from APIs and CSV files, converts it into pandas DataFrames, and loads it into PostgreSQL for further analysis.
+
+### Dockerfile.ingest
+`Dockerfile.ingest` is used to build a dedicated Docker image for the ingestion scripts. It provides the required Python environment and dependencies and copies the ingestion files into the container. This allows the ingestion process to run in a reproducible and isolated environment.
+
+---
+
+## Transformations
+
+After ingestion, both datasets undergo transformation and aggregation steps before being stored in the final table. These transformations directly support the use case by enabling daily analysis of mobility patterns under different weather conditions.
+
+### Weather Data
+- Aggregated to a daily level (e.g., average temperature and wind speed)
+- Renamed and standardized column names
+- Rounded numerical values to one decimal place for consistency
+
+### Traffic Data
+- Selected relevant columns (e.g., location, date, traffic counts)
+- Standardized column names and formats
+- Ensured correct data types (e.g., dates, numeric values)
+
+### Final Dataset
+- Joined weather and traffic data on the date field
+- Created a unified dataset for downstream analysis
+- Ensured a clean and consistent schema across all columns
+
+The resulting dataset is structured, consistent, and ready for analysis and visualization.
 
 ---
 
 ## Setup Instructions
 
-### 1. Start the system
+### 1. Prerequisites
 
-Start Docker Desktop
+- Docker Desktop installed and running
+- (Optional) Python 3.x for manual execution
+
+### 2. Start the system
 
 ```bash
 docker compose up -d
 ```
 
----
-
-
-### 2. Configure pgAdmin
-
-```
+### 3. Configure pgAdmin
+```text
 http://localhost:8085
 ```
 
+
 Create a new server with:
 
-### General tab
-
+**General**
 * **Name:** `meteo-postgres`
 
-### Connection tab
-
+**Connection**
 * **Host name/address:** `pgdatabase`
 * **Port:** `5432`
 * **Maintenance database:** `meteo`
 * **Username:** `root`
 * **Password:** `meteo123`
+
+Note: The project uses multiple databases. `meteo` is used for raw weather data, while `traffic_zurich` stores the transformed and aggregated dataset.
 
 ---
 
@@ -333,7 +214,7 @@ Create a new server with:
 
 Go to:
 
-```
+```text
 http://localhost:8086
 ```
 
@@ -353,7 +234,7 @@ http://localhost:8086
 
 ---
 
-### 4. Monitor execution
+### 3. Monitor execution
 
 * All of the three tasks should turn **green** after some time.
 * Tasks:
@@ -364,7 +245,7 @@ http://localhost:8086
 
 ![Screenshot](images/airflow_tasks.png)
 
-* If all tasks are **green**, The table is built and can be queried in pgAdmin in the database **traffic_zurich**.
+* If all tasks are **green**, the table is built and can be queried in pgAdmin in the database **traffic_zurich**.
 
 ---
 
@@ -399,16 +280,10 @@ Expected:
 ```
 
 ---
-
-```sql
-SELECT * FROM mobility_weather_daily LIMIT 10;
-```
-
----
-
 ## Manual Execution (Fallback)
 
-If Airflow is not used, scripts can be executed manually:
+If Airflow is not available, the pipeline can be executed manually.  
+This approach is mainly intended for debugging or development purposes, while the primary execution is handled via Airflow.
 
 ```bash
 python ingest_meteo.py
@@ -431,6 +306,40 @@ To reproduce the project (overview):
 3. Open Airflow
 4. Trigger DAG
 5. Validate results in pgAdmin
+
+---
+
+## Reset and Restart the Project
+
+This section describes how to stop, reset, and restart the Docker-based environment.
+
+### Stop the Project
+
+To stop all running containers, use:
+
+```bash
+docker compose down
+```
+This stops and removes the containers but keeps the stored data (volumes).
+
+### Reset the Project
+To completely reset the project, including all stored data, use:
+
+```bash
+docker compose down -v
+```
+
+> Warning: This command deletes all Docker volumes, including the PostgreSQL database.
+
+After a full reset (`-v`), the database is empty.  
+The ingestion and transformation steps must be executed again to restore the data.
+
+### Restart the Project
+To start the system again after stopping or resetting:
+```bash
+docker compose up -d
+```
+This recreates and starts all services defined in the Docker Compose file.
 
 ---
 
