@@ -91,23 +91,42 @@ transform_daily
         ↓
 mobility_weather_daily
 ```
+
 ---
-## Ingestion Pipeline
 
-### Scripts
-- ingest_meteo.py → API ingestion
-- ingest_traffic.py → CSV ingestion
+## Reset and Restart the Project
 
-### Characteristics
-The ingestion pipeline is batch-based, modular, reusable, and well-documented, ensuring maintainability and flexibility.
+This section describes how to stop, reset, and restart the Docker-based environment.
 
-### Process
-The ingestion process fetches data from APIs and CSV files, converts it into pandas DataFrames, and loads it into PostgreSQL for further analysis.
+### Stop the Project
 
-### Example (Docker)
-```text
+To stop all running containers, use:
+
+```bash
+docker compose down
+```
+This stops and removes the containers but keeps the stored data (volumes).
+
+### Reset the Project
+To remove all containers and volumes, use:
+
+```bash
+docker compose down -v
+```
+
+> Warning: `docker compose down -v` deletes all stored PostgreSQL data.
+
+### Restart the Project
+To start the system again after stopping or resetting:
+```bash
 docker compose up -d
+```
+This will recreate and start all services defined in the Docker Compose file.
 
+### Reinitialize the Data
+If the project was reset using -v, the database is empty and must be repopulated.
+You need to rerun the ingestion pipeline, for example:
+```bash
 docker run --rm \
   --network=project_mobile_default \
   project_ingest:dev /app/ingest_meteo.py \
@@ -121,9 +140,49 @@ docker run --rm \
   --longitude=8.5417 \
   --start_date=2025-01-01 \
   --end_date=2025-01-07
-
-  docker compose down
 ```
+
+Alternatively, the pipeline can be triggered via Airflow.
+
+---
+## Ingestion Pipeline
+
+### Scripts
+- ingest_meteo.py → API ingestion
+- ingest_traffic.py → CSV ingestion
+
+### Characteristics
+The ingestion pipeline is batch-based, modular, reusable, and well-documented, ensuring maintainability and flexibility.
+
+### Process
+The ingestion process fetches data from APIs and CSV files, converts it into pandas DataFrames, and loads it into PostgreSQL for further analysis.
+
+### Dockerfile.ingest
+`Dockerfile.ingest` is used to build a dedicated Docker image for the ingestion scripts. It provides the required Python environment and dependencies and copies the ingestion files into the container. This allows the ingestion process to run in a reproducible and isolated environment.
+
+### Example (Docker)
+```text
+docker compose up -d
+```
+```text
+docker build -f Dockerfile.ingest -t project_ingest:dev .
+```
+```text
+docker run --rm \
+  --network=project_mobile_default \
+  project_ingest:dev /app/ingest_meteo.py \
+  --user=root \
+  --password=meteo123 \
+  --host=pgdatabase \
+  --port=5432 \
+  --db=meteo \
+  --table=historical_weather \
+  --latitude=47.3769 \
+  --longitude=8.5417 \
+  --start_date=2025-01-01 \
+  --end_date=2025-01-07
+```
+
 ---
 ## Local Storage (PostgreSQL in Docker)
 The PostgreSQL database is running locally in Docker to store both raw and processed data.
@@ -132,34 +191,36 @@ The PostgreSQL database is running locally in Docker to store both raw and proce
 The database can be accessed through **pgAdmin**, which provides a graphical user interface for querying and managing the data.
 
 Open pgAdmin in your browser:
-```
+```text
 http://localhost:8085
 ```
 Login-Data:
-Email: admin@admin.com
-PWD: admin123
+- Email: admin@admin.com
+- PWD: admin123
 
 ### Connect to the Database
 Right-click on **Servers → Register → Server**
 
 Then enter:
 **General**
-Name: meteo-postgres
+- Name: meteo-postgres
 **Connection**
-Host: pgdatabase
-Port: 5432
-Username: root
-Password: meteo123
+- Host: pgdatabase
+- Port: 5432
+- Username: root
+- Password: meteo123
 
 ### Query the Data
-- Select Database
-- Open Query Tool (Right-click on the database → Query Tool)
-- Run Query
-
+After connecting:
+- Select a database (e.g., meteo or traffic_zurich)
+- Right-click → Query Tool
+- Run a query
+```text
 SELECT * FROM historical_weather LIMIT 10;
-
+```
+```text
 SELECT * FROM traffic_data LIMIT 10;
-
+```
 ---
 
 ## Transformations
