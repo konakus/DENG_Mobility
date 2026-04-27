@@ -34,4 +34,20 @@ htmlcov/
 
 # Lokale generierte Dateien
 output.parquet
-EOF
+
+# Terraform local files
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Terraform local variable files
+terraform.tfvars
+*.tfvars
+*.tfvars.json
+
+# Google Cloud credentials / service account keys
+keys/
+**/keys/
+*.json
