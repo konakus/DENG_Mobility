@@ -5,4 +5,5 @@ USER airflow
 RUN pip install --no-cache-dir \
     pandas \
     requests \
-    google-cloud-storage
+    google-cloud-storage \
+    google-cloud-bigquery
