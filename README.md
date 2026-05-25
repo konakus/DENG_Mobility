@@ -12,9 +12,10 @@
 8. [Reproducibility Guide](#8-reproducibility-guide)
 9. [Cloud Infrastructure with Terraform](#9-cloud-infrastructure-with-terraform)
 10. [Google Cloud Credentials and Keys](#10-google-cloud-credentials-and-keys)
-11. [Repository Structure](#11-repository-structure)
-12. [Notes and Future Improvements](#12-notes-and-future-improvements)
-13. [Authors](#13-authors)
+11. [Environment Variables and Secrets](#11-environment-variables-and-secrets)
+12. [Repository Structure](#12-repository-structure)
+13. [Notes and Future Improvements](#13-notes-and-future-improvements)
+14. [Authors](#14-authors)
 
 ---
 
@@ -27,7 +28,7 @@ The pipeline combines:
 - Zurich pedestrian and bicycle traffic data from the Stadt Zürich Open Data portal
 - Historical weather data from the Open-Meteo API
 
-The project contains both a local and a cloud-based pipeline:
+The project contains both a local and a cloud-based pipeline.
 
 1. **Local pipeline**
    - Ingests raw data into PostgreSQL
@@ -37,7 +38,7 @@ The project contains both a local and a cloud-based pipeline:
 2. **Cloud pipeline**
    - Ingests raw source data into a Google Cloud Storage data lake
    - Reads the raw data from the data lake
-   - Transforms and loads the final analytical table into BigQuery
+   - Transforms and loads analytical tables into BigQuery
 
 Apache Airflow orchestrates both the local and cloud workflows.  
 Terraform provisions the required Google Cloud infrastructure.  
@@ -51,12 +52,13 @@ Docker Compose is used to make the local execution environment reproducible.
 
 The persona wants to monitor and analyze how weather conditions influence pedestrian and bicycle mobility in Zurich.
 
-The final analytical dataset supports questions such as:
+The final analytical datasets support questions such as:
 
 - How does precipitation affect bicycle and pedestrian traffic?
 - How do mobility patterns differ between weekdays and weekends?
 - How does the current year compare to the previous year?
 - Are current mobility trends developing differently under similar weather conditions?
+- Which counting stations show unusually high or low mobility patterns?
 
 ### Why this user needs a data pipeline
 
@@ -69,11 +71,12 @@ The raw datasets have different structures and time granularities. Therefore, th
 
 ### How the processed data is used
 
-The pipeline produces a daily aggregated table that combines:
+The pipeline produces analytical BigQuery tables that combine:
 
 - weather indicators
 - bicycle and pedestrian counts
 - calendar features such as year, month, weekday and weekend flag
+- station-level information for more detailed spatial analysis
 
 For the final version, the pipeline includes both:
 
@@ -123,8 +126,8 @@ cloud_warehouse_transformation Airflow DAG
           ▼
 BigQuery Data Warehouse
           │
-          ▼
-mobility_weather_daily
+          ├── mobility_weather_daily
+          └── mobility_weather_daily_by_station
 ```
 
 ### 3.3 Airflow DAGs
@@ -152,8 +155,9 @@ Google Cloud Storage Data Lake
 Daily aggregation and join
         │
         ▼
-BigQuery table:
+BigQuery tables:
 projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily
+projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily_by_station
 ```
 
 ---
@@ -170,6 +174,7 @@ Prerequisites:
 
 - Docker Desktop installed and running
 - Git installed
+- A local `.env` file based on `.env.example`
 
 Start the system:
 
@@ -185,11 +190,11 @@ Open pgAdmin:
 http://localhost:8085
 ```
 
-Login:
+The pgAdmin login is read from the local `.env` file:
 
 ```text
-Email: admin@admin.com
-Password: admin123
+PGADMIN_DEFAULT_EMAIL
+PGADMIN_DEFAULT_PASSWORD
 ```
 
 Create a new server:
@@ -206,8 +211,8 @@ Name: meteo-postgres
 Host name/address: pgdatabase
 Port: 5432
 Maintenance database: meteo
-Username: root
-Password: meteo123
+Username: value of POSTGRES_USER from .env
+Password: value of POSTGRES_PASSWORD from .env
 ```
 
 The local setup uses multiple databases.  
@@ -222,11 +227,11 @@ Open Airflow:
 http://localhost:8086
 ```
 
-Login:
+The Airflow login is created from the local `.env` file:
 
 ```text
-Username: admin
-Password: admin
+AIRFLOW_USERNAME
+AIRFLOW_PASSWORD
 ```
 
 Enable and trigger the DAG:
@@ -292,7 +297,13 @@ raw/weather/year=2025/weather_zurich_2025.csv
 raw/weather/year=2026/weather_zurich_2026.csv
 ```
 
-The target bucket is:
+The target bucket is configured via the environment variable:
+
+```text
+GCS_BUCKET_NAME
+```
+
+In the current project setup, the bucket is:
 
 ```text
 project-mobile-zurich-data-lake-494518
@@ -309,17 +320,63 @@ The Airflow DAG
 cloud_warehouse_transformation
 ```
 
-reads the raw files from Google Cloud Storage, applies the transformation logic and loads the final analytical table into BigQuery.
+reads the raw files from Google Cloud Storage, applies the transformation logic and loads the final analytical tables into BigQuery.
 
-The final BigQuery table is:
+The final BigQuery dataset is configured via:
 
 ```text
-projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily
+BQ_DATASET_ID
 ```
 
-### 5.3 BigQuery Partitioning and Clustering
+In the current project setup, the dataset is:
 
-The BigQuery table is partitioned by:
+```text
+projectmobile-494518.zurich_mobility_warehouse
+```
+
+### 5.3 Final BigQuery Tables
+
+The pipeline creates two BigQuery tables.
+
+#### City-level table
+
+```text
+mobility_weather_daily
+```
+
+Granularity:
+
+```text
+one row per date
+```
+
+Purpose:
+
+- high-level monitoring of Zurich mobility
+- comparison of 2025 and 2026
+- weather impact analysis at city level
+
+#### Station-level table
+
+```text
+mobility_weather_daily_by_station
+```
+
+Granularity:
+
+```text
+one row per date and station
+```
+
+Purpose:
+
+- station-level mobility analysis
+- spatial comparison between counting stations
+- more detailed analysis using `station_id`, `east_coord` and `north_coord`
+
+### 5.4 BigQuery Partitioning and Clustering
+
+Both BigQuery tables are partitioned by:
 
 ```text
 date
@@ -327,10 +384,16 @@ date
 
 This is useful because most analytical queries filter or aggregate data by time.
 
-The table is clustered by:
+The city-level table is clustered by:
 
 ```text
 year, month, is_weekend
+```
+
+The station-level table is clustered by:
+
+```text
+station_id, year, month
 ```
 
 This supports common analysis patterns such as:
@@ -338,12 +401,13 @@ This supports common analysis patterns such as:
 - comparing 2025 and 2026
 - filtering by month
 - comparing weekdays and weekends
+- analyzing specific counting stations
 
 ---
 
 ## 6. Transformation Logic
 
-The transformation logic converts raw traffic and weather data into a daily analytical dataset.
+The transformation logic converts raw traffic and weather data into analytical datasets.
 
 ### 6.1 Weather Transformation
 
@@ -364,14 +428,49 @@ The following steps are applied:
 - parse timestamps from the `DATUM` column
 - convert bicycle and pedestrian count columns to numeric values
 - treat missing count values as zero
-- aggregate bicycle and pedestrian counts to daily totals
+- calculate row-level bicycle totals from `VELO_IN` and `VELO_OUT`
+- calculate row-level pedestrian totals from `FUSS_IN` and `FUSS_OUT`
+
+### 6.3 City-Level Aggregation
+
+The city-level table aggregates all Zurich counting stations into one daily row.
+
+Output table:
+
+```text
+mobility_weather_daily
+```
 
 The following features are calculated:
 
 - total bicycle traffic per day
 - total pedestrian traffic per day
+- daily weather indicators
+- calendar features
 
-### 6.3 Final Join and Calendar Features
+### 6.4 Station-Level Aggregation
+
+The station-level table keeps the station dimension.
+
+Output table:
+
+```text
+mobility_weather_daily_by_station
+```
+
+The following features are calculated per day and station:
+
+- `station_id`
+- `east_coord`
+- `north_coord`
+- total bicycle traffic per station and day
+- total pedestrian traffic per station and day
+- daily weather indicators
+- calendar features
+
+This table allows more detailed spatial analysis while preserving the simpler city-level table for high-level monitoring.
+
+### 6.5 Final Join and Calendar Features
 
 Weather and traffic data are joined on the date field.
 
@@ -382,7 +481,7 @@ Additional calendar features are added:
 - day of week
 - weekend flag
 
-The final dataset supports the use case by providing one clean row per day with both weather and mobility indicators.
+The final datasets support the use case by providing clean analytical tables with both weather and mobility indicators.
 
 ---
 
@@ -431,7 +530,7 @@ raw/weather/year=2025/weather_zurich_2025.csv
 raw/weather/year=2026/weather_zurich_2026.csv
 ```
 
-### 7.3 BigQuery Verification
+### 7.3 BigQuery Verification: City-Level Table
 
 Open BigQuery in the Google Cloud Console and navigate to:
 
@@ -455,7 +554,7 @@ Expected result:
 - `max_date` should correspond to the latest loaded 2026 weather date
 - `row_count` should include all daily rows from 2025 and the loaded part of 2026
 
-Preview the final table:
+Preview the final city-level table:
 
 ```sql
 SELECT *
@@ -464,7 +563,49 @@ ORDER BY date
 LIMIT 20;
 ```
 
-### 7.4 Optional terminal verification for GCS
+### 7.4 BigQuery Verification: Station-Level Table
+
+Open BigQuery in the Google Cloud Console and navigate to:
+
+```text
+projectmobile-494518 → zurich_mobility_warehouse → mobility_weather_daily_by_station
+```
+
+Run:
+
+```sql
+SELECT
+  COUNT(*) AS row_count,
+  COUNT(DISTINCT station_id) AS station_count,
+  MIN(date) AS min_date,
+  MAX(date) AS max_date
+FROM `projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily_by_station`;
+```
+
+Preview the station-level table:
+
+```sql
+SELECT *
+FROM `projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily_by_station`
+ORDER BY date, station_id
+LIMIT 20;
+```
+
+Example station-level analysis:
+
+```sql
+SELECT
+  station_id,
+  SUM(total_velo) AS yearly_velo_total,
+  SUM(total_fuss) AS yearly_fuss_total
+FROM `projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily_by_station`
+WHERE year = 2025
+GROUP BY station_id
+ORDER BY yearly_velo_total DESC
+LIMIT 10;
+```
+
+### 7.5 Optional Terminal Verification for GCS
 
 From the project root, after the Docker environment is running:
 
@@ -494,7 +635,33 @@ git clone https://github.com/konakus/DENG_Mobility.git
 cd DENG_Mobility
 ```
 
-### 8.2 Required local files
+### 8.2 Create the local `.env` file
+
+The repository includes an example environment file:
+
+```text
+.env.example
+```
+
+Create a local `.env` file from it.
+
+On macOS/Linux:
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then adjust the values in `.env` if needed.
+
+The `.env` file is local only and must not be committed.
+
+### 8.3 Required Google Cloud key
 
 The repository does not include Google Cloud credentials.
 
@@ -506,7 +673,15 @@ terraform/keys/my-creds.json
 
 This file must never be committed to GitHub.
 
-### 8.3 Build the custom Airflow image
+The `.env` file should contain:
+
+```text
+GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/project/terraform/keys/my-creds.json
+```
+
+This is the path inside the Airflow container.
+
+### 8.4 Build the custom Airflow image
 
 The project uses a custom Airflow image because the default Airflow image does not include all required Google Cloud Python packages.
 
@@ -516,7 +691,7 @@ Build the image:
 docker build -f Dockerfile.airflow -t deng_airflow:2.9.3 .
 ```
 
-### 8.4 Start Docker Compose
+### 8.5 Start Docker Compose
 
 ```bash
 docker compose up -d
@@ -537,20 +712,36 @@ airflow_webserver
 airflow_scheduler
 ```
 
-### 8.5 Open Airflow
+### 8.6 Check environment variables inside Airflow
+
+Run:
+
+```bash
+docker compose exec airflow-scheduler bash -lc 'echo $GCS_BUCKET_NAME && echo $BQ_CITY_TABLE_ID && echo $BQ_STATION_TABLE_ID'
+```
+
+Expected output:
+
+```text
+project-mobile-zurich-data-lake-494518
+mobility_weather_daily
+mobility_weather_daily_by_station
+```
+
+### 8.7 Open Airflow
 
 ```text
 http://localhost:8086
 ```
 
-Login:
+Login with the credentials from the local `.env` file:
 
 ```text
-Username: admin
-Password: admin
+AIRFLOW_USERNAME
+AIRFLOW_PASSWORD
 ```
 
-### 8.6 Run the cloud data lake ingestion DAG
+### 8.8 Run the cloud data lake ingestion DAG
 
 In Airflow, enable and trigger:
 
@@ -567,7 +758,7 @@ upload_weather_2025_to_gcs
 upload_weather_2026_to_gcs
 ```
 
-### 8.7 Run the cloud warehouse transformation DAG
+### 8.9 Run the cloud warehouse transformation DAG
 
 In Airflow, enable and trigger:
 
@@ -581,9 +772,16 @@ Expected successful task:
 transform_gcs_to_bigquery
 ```
 
-### 8.8 Verify the result in BigQuery
+This task creates or refreshes both BigQuery tables:
 
-Run:
+```text
+mobility_weather_daily
+mobility_weather_daily_by_station
+```
+
+### 8.10 Verify the result in BigQuery
+
+City-level table:
 
 ```sql
 SELECT
@@ -593,7 +791,18 @@ SELECT
 FROM `projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily`;
 ```
 
-### 8.9 Stop the project
+Station-level table:
+
+```sql
+SELECT
+  COUNT(*) AS row_count,
+  COUNT(DISTINCT station_id) AS station_count,
+  MIN(date) AS min_date,
+  MAX(date) AS max_date
+FROM `projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily_by_station`;
+```
+
+### 8.11 Stop the project
 
 ```bash
 docker compose down
@@ -601,7 +810,7 @@ docker compose down
 
 This stops the containers but keeps Docker volumes.
 
-### 8.10 Full reset
+### 8.12 Full reset
 
 ```bash
 docker compose down -v
@@ -711,6 +920,7 @@ Steps:
    ```
 
 4. Create or use a service account with the required permissions.
+
 5. Required roles for the full project:
 
    ```text
@@ -767,7 +977,58 @@ They only need a key if they want to:
 
 ---
 
-## 11. Repository Structure
+## 11. Environment Variables and Secrets
+
+The project uses a `.env.example` file to document required environment variables.
+
+A local `.env` file must be created from `.env.example` before running Docker Compose.
+
+The `.env` file contains local configuration such as:
+
+- PostgreSQL user and password
+- pgAdmin login values
+- Airflow UI login values
+- Google Cloud project and bucket names
+- BigQuery dataset and table names
+- path to the local Google Cloud service account key inside the container
+
+The `.env` file must not be committed.
+
+### 11.1 Why this is done
+
+Credentials and local environment-specific values should not be hardcoded directly into Docker Compose files, Airflow DAGs or Bash commands.
+
+Instead:
+
+- example values are documented in `.env.example`
+- local values are stored in `.env`
+- Docker Compose injects them into the containers
+- Airflow DAGs read them as environment variables
+
+This improves reproducibility while avoiding committing local secrets.
+
+### 11.2 Important files
+
+Committed:
+
+```text
+.env.example
+```
+
+Not committed:
+
+```text
+.env
+terraform/keys/my-creds.json
+terraform/terraform.tfvars
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/.terraform/
+```
+
+---
+
+## 12. Repository Structure
 
 ```text
 DENG_Mobility/
@@ -799,6 +1060,7 @@ DENG_Mobility/
 │   ├── terraform.tfvars.example
 │   └── .terraform.lock.hcl
 │
+├── .env.example
 ├── ingest_meteo.py
 ├── ingest_traffic.py
 ├── load_meteo.py
@@ -813,7 +1075,7 @@ DENG_Mobility/
 
 ---
 
-## 12. Notes and Future Improvements
+## 13. Notes and Future Improvements
 
 ### Notes
 
@@ -823,19 +1085,21 @@ DENG_Mobility/
 - The final cloud pipeline uses Google Cloud Storage as data lake and BigQuery as data warehouse.
 - Google Cloud credentials and Terraform state files are intentionally excluded from GitHub.
 - The 2026 weather end date is currently configured in the Airflow DAG.
+- The cloud pipeline currently refreshes yearly raw files rather than using fully incremental daily ingestion.
 
 ### Future Improvements
 
 - Add Basel as a second city for comparison.
 - Make the 2026 weather end date dynamic based on the Airflow execution date.
 - Add incremental loading instead of refreshing full yearly files.
-- Build a dashboard on top of the BigQuery table.
+- Build a dashboard on top of the BigQuery tables.
 - Add data quality checks before loading into BigQuery.
 - Add automated tests for transformation logic.
+- Add station metadata enrichment, for example station names or district information.
 
 ---
 
-## 13. Authors
+## 14. Authors
 
 - Susanne Pfenninger
 - Diego Gonzalez

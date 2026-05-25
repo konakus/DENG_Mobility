@@ -14,7 +14,7 @@ default_args = {
 with DAG(
     dag_id="cloud_warehouse_transformation",
     default_args=default_args,
-    description="Transform GCS data lake files and load final Zurich mobility table into BigQuery",
+    description="Transform GCS data lake files and load Zurich mobility tables into BigQuery",
     start_date=datetime(2025, 1, 1),
     schedule="@daily",
     catchup=False,
@@ -25,9 +25,10 @@ with DAG(
         task_id="transform_gcs_to_bigquery",
         bash_command="""
         python /opt/airflow/project/cloud/transform_gcs_to_bigquery.py \
-          --bucket_name=project-mobile-zurich-data-lake-494518 \
-          --project_id=projectmobile-494518 \
-          --dataset_id=zurich_mobility_warehouse \
-          --table_id=mobility_weather_daily
+          --bucket_name="$GCS_BUCKET_NAME" \
+          --project_id="$GCP_PROJECT_ID" \
+          --dataset_id="$BQ_DATASET_ID" \
+          --city_table_id="$BQ_CITY_TABLE_ID" \
+          --station_table_id="$BQ_STATION_TABLE_ID"
         """,
     )

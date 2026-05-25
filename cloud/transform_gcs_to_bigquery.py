@@ -62,8 +62,23 @@ def transform_weather_daily(df_weather: pd.DataFrame) -> pd.DataFrame:
     return weather_daily
 
 
-def transform_traffic_daily(df_traffic: pd.DataFrame) -> pd.DataFrame:
+def prepare_traffic_base(df_traffic: pd.DataFrame) -> pd.DataFrame:
     df = df_traffic.copy()
+
+    expected_columns = [
+        "FK_STANDORT",
+        "DATUM",
+        "VELO_IN",
+        "VELO_OUT",
+        "FUSS_IN",
+        "FUSS_OUT",
+        "OST",
+        "NORD",
+    ]
+
+    for col in expected_columns:
+        if col not in df.columns:
+            raise ValueError(f"Missing expected traffic column: {col}")
 
     df["DATUM"] = pd.to_datetime(df["DATUM"], errors="coerce")
     df = df.dropna(subset=["DATUM"])
@@ -71,14 +86,24 @@ def transform_traffic_daily(df_traffic: pd.DataFrame) -> pd.DataFrame:
     count_cols = ["VELO_IN", "VELO_OUT", "FUSS_IN", "FUSS_OUT"]
 
     for col in count_cols:
-        if col not in df.columns:
-            raise ValueError(f"Missing expected traffic column: {col}")
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    df["date"] = df["DATUM"].dt.date
+    df["FK_STANDORT"] = pd.to_numeric(df["FK_STANDORT"], errors="coerce")
+    df = df.dropna(subset=["FK_STANDORT"])
+    df["FK_STANDORT"] = df["FK_STANDORT"].astype("int64")
 
+    df["OST"] = pd.to_numeric(df["OST"], errors="coerce")
+    df["NORD"] = pd.to_numeric(df["NORD"], errors="coerce")
+
+    df["date"] = df["DATUM"].dt.date
     df["velo_total_row"] = df["VELO_IN"] + df["VELO_OUT"]
     df["fuss_total_row"] = df["FUSS_IN"] + df["FUSS_OUT"]
+
+    return df
+
+
+def transform_traffic_city_daily(df_traffic: pd.DataFrame) -> pd.DataFrame:
+    df = prepare_traffic_base(df_traffic)
 
     traffic_daily = (
         df.groupby("date", as_index=False)
@@ -89,6 +114,24 @@ def transform_traffic_daily(df_traffic: pd.DataFrame) -> pd.DataFrame:
     )
 
     return traffic_daily
+
+
+def transform_traffic_station_daily(df_traffic: pd.DataFrame) -> pd.DataFrame:
+    df = prepare_traffic_base(df_traffic)
+
+    station_daily = (
+        df.groupby(["date", "FK_STANDORT"], as_index=False)
+        .agg(
+            east_coord=("OST", "first"),
+            north_coord=("NORD", "first"),
+            total_velo=("velo_total_row", "sum"),
+            total_fuss=("fuss_total_row", "sum"),
+        )
+    )
+
+    station_daily = station_daily.rename(columns={"FK_STANDORT": "station_id"})
+
+    return station_daily
 
 
 def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -107,27 +150,27 @@ def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_final_dataset(traffic_df: pd.DataFrame, weather_df: pd.DataFrame) -> pd.DataFrame:
-    print("Transforming weather data to daily level...")
-    weather_daily = transform_weather_daily(weather_df)
-    print(f"Weather daily rows: {len(weather_daily)}")
+def finalize_common_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
 
-    print("Transforming traffic data to daily level...")
-    traffic_daily = transform_traffic_daily(traffic_df)
-    print(f"Traffic daily rows: {len(traffic_daily)}")
+    out["avg_temperature"] = out["avg_temperature"].round(1)
+    out["total_precipitation"] = out["total_precipitation"].round(1)
+    out["avg_windspeed"] = out["avg_windspeed"].round(1)
 
-    print("Joining traffic and weather data...")
+    out["total_velo"] = out["total_velo"].round(0).astype("int64")
+    out["total_fuss"] = out["total_fuss"].round(0).astype("int64")
+
+    return out
+
+
+def build_city_dataset(traffic_df: pd.DataFrame, weather_daily: pd.DataFrame) -> pd.DataFrame:
+    print("Building city-level daily dataset...")
+
+    traffic_daily = transform_traffic_city_daily(traffic_df)
     final_df = pd.merge(traffic_daily, weather_daily, on="date", how="left")
 
-    print("Adding calendar features...")
     final_df = add_calendar_features(final_df)
-
-    final_df["avg_temperature"] = final_df["avg_temperature"].round(1)
-    final_df["total_precipitation"] = final_df["total_precipitation"].round(1)
-    final_df["avg_windspeed"] = final_df["avg_windspeed"].round(1)
-
-    final_df["total_velo"] = final_df["total_velo"].round(0).astype("int64")
-    final_df["total_fuss"] = final_df["total_fuss"].round(0).astype("int64")
+    final_df = finalize_common_columns(final_df)
 
     final_df = final_df[
         [
@@ -146,9 +189,47 @@ def build_final_dataset(traffic_df: pd.DataFrame, weather_df: pd.DataFrame) -> p
 
     final_df = final_df.sort_values("date").reset_index(drop=True)
 
-    print("Preview of final dataset:")
+    print("Preview of city-level dataset:")
     print(final_df.head(10))
-    print(f"Final rows: {len(final_df)}")
+    print(f"City-level rows: {len(final_df)}")
+
+    return final_df
+
+
+def build_station_dataset(traffic_df: pd.DataFrame, weather_daily: pd.DataFrame) -> pd.DataFrame:
+    print("Building station-level daily dataset...")
+
+    station_daily = transform_traffic_station_daily(traffic_df)
+    final_df = pd.merge(station_daily, weather_daily, on="date", how="left")
+
+    final_df = add_calendar_features(final_df)
+    final_df = finalize_common_columns(final_df)
+
+    final_df["station_id"] = final_df["station_id"].astype("int64")
+
+    final_df = final_df[
+        [
+            "date",
+            "station_id",
+            "east_coord",
+            "north_coord",
+            "year",
+            "month",
+            "day_of_week",
+            "is_weekend",
+            "avg_temperature",
+            "total_precipitation",
+            "avg_windspeed",
+            "total_velo",
+            "total_fuss",
+        ]
+    ]
+
+    final_df = final_df.sort_values(["date", "station_id"]).reset_index(drop=True)
+
+    print("Preview of station-level dataset:")
+    print(final_df.head(10))
+    print(f"Station-level rows: {len(final_df)}")
 
     return final_df
 
@@ -158,11 +239,43 @@ def load_dataframe_to_bigquery(
     project_id: str,
     dataset_id: str,
     table_id: str,
+    schema: list[bigquery.SchemaField],
+    clustering_fields: list[str],
 ) -> None:
     client = bigquery.Client(project=project_id)
 
     full_table_id = f"{project_id}.{dataset_id}.{table_id}"
 
+    job_config = bigquery.LoadJobConfig(
+        schema=schema,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        time_partitioning=bigquery.TimePartitioning(
+            type_=bigquery.TimePartitioningType.DAY,
+            field="date",
+        ),
+        clustering_fields=clustering_fields,
+    )
+
+    print(f"Loading dataset to BigQuery table: {full_table_id}")
+
+    load_job = client.load_table_from_dataframe(
+        df,
+        full_table_id,
+        job_config=job_config,
+    )
+
+    load_job.result()
+
+    table = client.get_table(full_table_id)
+    print(f"Loaded {table.num_rows} rows into {full_table_id}")
+
+
+def load_city_table(
+    df: pd.DataFrame,
+    project_id: str,
+    dataset_id: str,
+    table_id: str,
+) -> None:
     schema = [
         bigquery.SchemaField("date", "DATE"),
         bigquery.SchemaField("year", "INTEGER"),
@@ -176,52 +289,85 @@ def load_dataframe_to_bigquery(
         bigquery.SchemaField("total_fuss", "INTEGER"),
     ]
 
-    job_config = bigquery.LoadJobConfig(
+    load_dataframe_to_bigquery(
+        df=df,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        table_id=table_id,
         schema=schema,
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-        time_partitioning=bigquery.TimePartitioning(
-            type_=bigquery.TimePartitioningType.DAY,
-            field="date",
-        ),
         clustering_fields=["year", "month", "is_weekend"],
     )
 
-    print(f"Loading final dataset to BigQuery table: {full_table_id}")
 
-    load_job = client.load_table_from_dataframe(
-        df,
-        full_table_id,
-        job_config=job_config,
+def load_station_table(
+    df: pd.DataFrame,
+    project_id: str,
+    dataset_id: str,
+    table_id: str,
+) -> None:
+    schema = [
+        bigquery.SchemaField("date", "DATE"),
+        bigquery.SchemaField("station_id", "INTEGER"),
+        bigquery.SchemaField("east_coord", "FLOAT"),
+        bigquery.SchemaField("north_coord", "FLOAT"),
+        bigquery.SchemaField("year", "INTEGER"),
+        bigquery.SchemaField("month", "INTEGER"),
+        bigquery.SchemaField("day_of_week", "STRING"),
+        bigquery.SchemaField("is_weekend", "BOOLEAN"),
+        bigquery.SchemaField("avg_temperature", "FLOAT"),
+        bigquery.SchemaField("total_precipitation", "FLOAT"),
+        bigquery.SchemaField("avg_windspeed", "FLOAT"),
+        bigquery.SchemaField("total_velo", "INTEGER"),
+        bigquery.SchemaField("total_fuss", "INTEGER"),
+    ]
+
+    load_dataframe_to_bigquery(
+        df=df,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        table_id=table_id,
+        schema=schema,
+        clustering_fields=["station_id", "year", "month"],
     )
-
-    load_job.result()
-
-    table = client.get_table(full_table_id)
-    print(f"Loaded {table.num_rows} rows into {full_table_id}")
-    print("BigQuery load completed.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Transform raw GCS data and load final Zurich mobility table into BigQuery."
+        description="Transform raw GCS data and load Zurich mobility tables into BigQuery."
     )
 
     parser.add_argument("--bucket_name", required=True)
     parser.add_argument("--project_id", required=True)
     parser.add_argument("--dataset_id", required=True)
-    parser.add_argument("--table_id", required=True)
+    parser.add_argument("--city_table_id", required=True)
+    parser.add_argument("--station_table_id", required=True)
 
     args = parser.parse_args()
 
     traffic_df, weather_df = load_source_data(args.bucket_name)
-    final_df = build_final_dataset(traffic_df, weather_df)
 
-    load_dataframe_to_bigquery(
-        df=final_df,
+    print("Transforming weather data to daily level...")
+    weather_daily = transform_weather_daily(weather_df)
+    print(f"Weather daily rows: {len(weather_daily)}")
+
+    city_df = build_city_dataset(traffic_df, weather_daily)
+    station_df = build_station_dataset(traffic_df, weather_daily)
+
+    load_city_table(
+        df=city_df,
         project_id=args.project_id,
         dataset_id=args.dataset_id,
-        table_id=args.table_id,
+        table_id=args.city_table_id,
     )
+
+    load_station_table(
+        df=station_df,
+        project_id=args.project_id,
+        dataset_id=args.dataset_id,
+        table_id=args.station_table_id,
+    )
+
+    print("BigQuery load completed for city-level and station-level tables.")
 
 
 if __name__ == "__main__":
