@@ -2,17 +2,19 @@ services:
   pgdatabase:
     image: postgres:18
     container_name: meteo_pgdatabase
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: meteo123
-      POSTGRES_DB: meteo
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5433:5432"
     volumes:
       - meteo_pgdata:/var/lib/postgresql
       - ./initdb:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U root -d meteo"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -20,9 +22,11 @@ services:
   pgadmin:
     image: dpage/pgadmin4
     container_name: meteo_pgadmin
+    env_file:
+      - .env
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
     ports:
       - "8085:80"
     depends_on:
@@ -30,28 +34,46 @@ services:
         condition: service_healthy
 
   airflow-init:
-    image: apache/airflow:2.9.3
+    image: deng_airflow:2.9.3
     container_name: airflow_init
+    env_file:
+      - .env
     depends_on:
       pgdatabase:
         condition: service_healthy
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://root:meteo123@pgdatabase:5432/meteo
-      AIRFLOW__WEBSERVER__SECRET_KEY: "midterm_secret_key"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      BQ_DATASET_ID: ${BQ_DATASET_ID}
+      BQ_CITY_TABLE_ID: ${BQ_CITY_TABLE_ID}
+      BQ_STATION_TABLE_ID: ${BQ_STATION_TABLE_ID}
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./:/opt/airflow/project
     command:
       - bash
       - -c
-      - airflow db migrate && airflow users create --username admin --password admin --firstname Airflow --lastname Admin --role Admin --email admin@example.com
+      - |
+        airflow db migrate &&
+        airflow users create \
+          --username "$$AIRFLOW_USERNAME" \
+          --password "$$AIRFLOW_PASSWORD" \
+          --firstname "$$AIRFLOW_FIRSTNAME" \
+          --lastname "$$AIRFLOW_LASTNAME" \
+          --role Admin \
+          --email "$$AIRFLOW_EMAIL" || true
 
   airflow-webserver:
-    image: apache/airflow:2.9.3
+    image: deng_airflow:2.9.3
     container_name: airflow_webserver
     restart: always
+    env_file:
+      - .env
     depends_on:
       pgdatabase:
         condition: service_healthy
@@ -60,8 +82,14 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://root:meteo123@pgdatabase:5432/meteo
-      AIRFLOW__WEBSERVER__SECRET_KEY: "midterm_secret_key"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      BQ_DATASET_ID: ${BQ_DATASET_ID}
+      BQ_CITY_TABLE_ID: ${BQ_CITY_TABLE_ID}
+      BQ_STATION_TABLE_ID: ${BQ_STATION_TABLE_ID}
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./:/opt/airflow/project
@@ -70,9 +98,11 @@ services:
     command: webserver
 
   airflow-scheduler:
-    image: apache/airflow:2.9.3
+    image: deng_airflow:2.9.3
     container_name: airflow_scheduler
     restart: always
+    env_file:
+      - .env
     depends_on:
       pgdatabase:
         condition: service_healthy
@@ -81,8 +111,14 @@ services:
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://root:meteo123@pgdatabase:5432/meteo
-      AIRFLOW__WEBSERVER__SECRET_KEY: "midterm_secret_key"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME}
+      BQ_DATASET_ID: ${BQ_DATASET_ID}
+      BQ_CITY_TABLE_ID: ${BQ_CITY_TABLE_ID}
+      BQ_STATION_TABLE_ID: ${BQ_STATION_TABLE_ID}
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./:/opt/airflow/project

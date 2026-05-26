@@ -25,10 +25,10 @@ with DAG(
         task_id="ingest_weather",
         bash_command="""
         python /opt/airflow/project/ingest_meteo.py \
-          --user=root \
-          --password=meteo123 \
-          --host=pgdatabase \
-          --port=5432 \
+          --user="$POSTGRES_USER" \
+          --password="$POSTGRES_PASSWORD" \
+          --host="$POSTGRES_HOST" \
+          --port="$POSTGRES_PORT" \
           --db=meteo \
           --table=historical_weather \
           --latitude=47.3769 \
@@ -42,10 +42,10 @@ with DAG(
         task_id="ingest_traffic",
         bash_command="""
         python /opt/airflow/project/ingest_traffic.py \
-          --user=root \
-          --password=meteo123 \
-          --host=pgdatabase \
-          --port=5432 \
+          --user="$POSTGRES_USER" \
+          --password="$POSTGRES_PASSWORD" \
+          --host="$POSTGRES_HOST" \
+          --port="$POSTGRES_PORT" \
           --db=traffic_zurich \
           --table=traffic_data \
           --csv=/opt/airflow/project/data/traffic_zurich.csv
@@ -56,10 +56,10 @@ with DAG(
         task_id="transform_daily",
         bash_command="""
         python /opt/airflow/project/transform_zurich_daily.py \
-          --user=root \
-          --password=meteo123 \
-          --host=pgdatabase \
-          --port=5432 \
+          --user="$POSTGRES_USER" \
+          --password="$POSTGRES_PASSWORD" \
+          --host="$POSTGRES_HOST" \
+          --port="$POSTGRES_PORT" \
           --weather_db=meteo \
           --traffic_db=traffic_zurich \
           --target_db=traffic_zurich \
