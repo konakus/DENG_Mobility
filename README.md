@@ -1,4 +1,5 @@
 # DENG Mobility Project – Zurich Pipeline (Final)
+Project status as of May 26, 2026
 
 ## Table of Contents
 
@@ -11,11 +12,12 @@
 7. [Verification](#7-verification)
 8. [Reproducibility Guide](#8-reproducibility-guide)
 9. [Cloud Infrastructure with Terraform](#9-cloud-infrastructure-with-terraform)
-10. [Google Cloud Credentials and Keys](#10-google-cloud-credentials-and-keys)
+10. [Google Cloud Access and Credentials](#10-google-cloud-access-and-credentials)
 11. [Environment Variables and Secrets](#11-environment-variables-and-secrets)
 12. [Repository Structure](#12-repository-structure)
-13. [Notes and Future Improvements](#13-notes-and-future-improvements)
-14. [Authors](#14-authors)
+13. [Project Presentation](#13-project-presentation)
+14. [Notes and Future Improvements](#14-notes-and-future-improvements)
+15. [Authors](#15-authors)
 
 ---
 
@@ -25,8 +27,8 @@ This project implements an end-to-end batch data pipeline for Zurich mobility an
 
 The pipeline combines:
 
-- Zurich pedestrian and bicycle traffic data from the Stadt Zürich Open Data portal
-- Historical weather data from the Open-Meteo API
+* Weather data from the [Open-Meteo API](https://open-meteo.com/en/docs/historical-weather-api)
+* Traffic data from [Zurich mobility datasets](https://data.stadt-zuerich.ch/dataset/ted_taz_verkehrszaehlungen_werte_fussgaenger_velo)
 
 The project contains both a local and a cloud-based pipeline.
 
@@ -98,12 +100,12 @@ Docker Compose
 │     └── stores local raw and transformed tables
 │
 ├── pgAdmin
-│     └── local database UI
+│     └── local database UI (http://localhost:8085)
 │
 ├── Airflow
 │     └── orchestrates the local batch pipeline
 │
-└── Python scripts
+└── Python scripts (Ingestion + Transformation)
       ├── ingest_meteo.py
       ├── ingest_traffic.py
       └── transform_zurich_daily.py
@@ -133,12 +135,13 @@ BigQuery Data Warehouse
 ### 3.3 Airflow DAGs
 
 The project contains three Airflow DAGs:
+(Google Cloud Storage: GCS)
 
-| DAG | Purpose |
-|---|---|
-| `zurich_mobility_pipeline` | Local PostgreSQL pipeline |
-| `cloud_data_lake_ingestion` | Loads raw traffic and weather data into Google Cloud Storage |
-| `cloud_warehouse_transformation` | Reads raw data from GCS, transforms it and loads it into BigQuery |
+| DAG                          | Purpose                   |
+|------------------------------|---------------------------|
+| `zurich_mobility_pipeline`   | Local PostgreSQL pipeline |
+| `cloud_data_lake_ingestion`  | Loads raw traffic & weather data into GCS |
+| `cloud_warehouse_transformation` | Reads raw data from GCS, transforms & loads it into BigQuery |
 
 ### 3.4 Final Cloud Data Flow
 
@@ -166,21 +169,34 @@ projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily_by_station
 
 The local pipeline was developed first and is kept in the repository for reproducibility and development.
 
-It loads weather and traffic data into PostgreSQL, transforms them, and creates a local final table.
+It loads weather and traffic data into PostgreSQL, transforms them, and creates a local final table (mobility_weather_daily).
 
 ### 4.1 Start the local Docker environment
 
 Prerequisites:
 
 - Docker Desktop installed and running
-- Git installed
+- Project cloned from the original [GitHub repository](https://github.com/konakus/DENG_Mobility.git)
 - A local `.env` file based on `.env.example`
 
 Start the system:
 
+From the project folder:
+- create a local `.env` file
+- build the Airflow image locally
+- start Docker Desktop
+
 ```bash
+cp .env.example .env
+docker build -f Dockerfile.airflow -t deng_airflow:2.9.3 .
 docker compose up -d
 ```
+To be sure, run:
+```bash
+docker compose ps
+```
+You should see airflow_webserver, airflow_scheduler, meteo_pgdatabase, and meteo_pgadmin running.
+
 
 ### 4.2 pgAdmin
 
@@ -233,12 +249,16 @@ The Airflow login is created from the local `.env` file:
 AIRFLOW_USERNAME
 AIRFLOW_PASSWORD
 ```
+You can see three DAGs: cloud_data_lake_ingestion,
+cloud_warehouse_transformation & zurich_mobility_pipeline
 
 Enable and trigger the DAG:
 
 ```text
 zurich_mobility_pipeline
 ```
+
+To the right of the zurich_mobility_pipeline line, you'll see a play icon under Actions. Click the blue play button to trigger the DAG. Then open `zurich_mobility_pipeline` to check the task status.
 
 Expected tasks:
 
@@ -258,7 +278,7 @@ In pgAdmin, open the database:
 traffic_zurich
 ```
 
-Run:
+Run in Query Tool:
 
 ```sql
 SELECT COUNT(*) FROM mobility_weather_daily;
@@ -280,13 +300,13 @@ The final project version extends the local pipeline with a cloud-based data lak
 
 ### 5.1 Cloud Data Lake Ingestion
 
-The Airflow DAG
+The Airflow DAG `cloud_data_lake_ingestion` uploads the raw source data to the Google Cloud Storage data lake.
 
-```text
-cloud_data_lake_ingestion
-```
+This step represents the cloud ingestion part of the final pipeline. The raw traffic and weather files are not transformed in this step. They are only collected and stored in the cloud data lake. The transformation happens later in the BigQuery pipeline.
 
-loads raw source data into the Google Cloud Storage data lake.
+#### Purpose of this DAG
+
+The DAG loads raw data from the source systems and stores it in Google Cloud Storage.
 
 It uploads the following files:
 
@@ -297,20 +317,26 @@ raw/weather/year=2025/weather_zurich_2025.csv
 raw/weather/year=2026/weather_zurich_2026.csv
 ```
 
+The 2025 files represent the complete reference year.
+The 2026 files represent the current year and can be refreshed regularly through the scheduled Airflow DAG.
+
 The target bucket is configured via the environment variable:
 
 ```text
 GCS_BUCKET_NAME
 ```
-
 In the current project setup, the bucket is:
 
 ```text
 project-mobile-zurich-data-lake-494518
 ```
 
-The 2025 files represent the complete reference year.  
-The 2026 files represent the current year and can be refreshed regularly through the scheduled Airflow DAG.
+This bucket is the Google Cloud Storage data lake. Reviewers only need access to the Google Cloud project to verify the uploaded raw files in the bucket.
+
+Google Cloud Storage bucket:  
+[Open bucket in Google Cloud Console](https://console.cloud.google.com/storage/browser/project-mobile-zurich-data-lake-494518?project=projectmobile-494518)
+
+Note: A local Google service account key is only required to run the cloud Airflow DAG locally. To verify the uploaded files in the Google Cloud Console, reviewers only need access to the Google Cloud project.
 
 ### 5.2 Cloud Warehouse Transformation
 
@@ -333,10 +359,21 @@ In the current project setup, the dataset is:
 ```text
 projectmobile-494518.zurich_mobility_warehouse
 ```
+#### Verification
+
+After the DAG has finished successfully, the task `transform_gcs_to_bigquery` should be green in Airflow.
+
+Verify the result in BigQuery:  
+[Open BigQuery](https://console.cloud.google.com/bigquery?project=projectmobile-494518)
+
 
 ### 5.3 Final BigQuery Tables
 
-The pipeline creates two BigQuery tables.
+The pipeline creates two BigQuery tables in: 
+
+```text
+projectmobile-494518.zurich_mobility_warehouse
+```
 
 #### City-level table
 
@@ -365,14 +402,14 @@ mobility_weather_daily_by_station
 Granularity:
 
 ```text
-one row per date and station
+one row per date and counting station
 ```
 
 Purpose:
 
 - station-level mobility analysis
 - spatial comparison between counting stations
-- more detailed analysis using `station_id`, `east_coord` and `north_coord`
+- detailed analysis using `station_id`, `east_coord` and `north_coord`
 
 ### 5.4 BigQuery Partitioning and Clustering
 
@@ -382,7 +419,7 @@ Both BigQuery tables are partitioned by:
 date
 ```
 
-This is useful because most analytical queries filter or aggregate data by time.
+This improves queries that filter or aggregate data by date.
 
 The city-level table is clustered by:
 
@@ -458,8 +495,7 @@ Output table:
 mobility_weather_daily_by_station
 ```
 
-The following features are calculated per day and station:
-
+Calculated features per date and station:
 - `station_id`
 - `east_coord`
 - `north_coord`
@@ -472,9 +508,9 @@ This table allows more detailed spatial analysis while preserving the simpler ci
 
 ### 6.5 Final Join and Calendar Features
 
-Weather and traffic data are joined on the date field.
+Weather and traffic data are joined by date.
 
-Additional calendar features are added:
+Additional calendar features:
 
 - year
 - month
@@ -488,6 +524,7 @@ The final datasets support the use case by providing clean analytical tables wit
 ## 7. Verification
 
 ### 7.1 Local PostgreSQL Verification
+(as described in Section 4.4)
 
 Open pgAdmin:
 
@@ -514,6 +551,7 @@ For the local pipeline, the expected result is:
 ```
 
 ### 7.2 Cloud Storage Verification
+(as described in Section 5.1)
 
 Open Google Cloud Console and navigate to:
 
@@ -531,6 +569,7 @@ raw/weather/year=2026/weather_zurich_2026.csv
 ```
 
 ### 7.3 BigQuery Verification: City-Level Table
+(as described in Section 5.3)
 
 Open BigQuery in the Google Cloud Console and navigate to:
 
@@ -661,25 +700,12 @@ Then adjust the values in `.env` if needed.
 
 The `.env` file is local only and must not be committed.
 
-### 8.3 Required Google Cloud key
+### 8.3 Google Cloud access
 
 The repository does not include Google Cloud credentials.
 
-To run the cloud pipeline, create or obtain a service account JSON key and store it locally as:
+A local service account JSON key is only required to run the cloud pipeline locally. See Section 10 for details.
 
-```text
-terraform/keys/my-creds.json
-```
-
-This file must never be committed to GitHub.
-
-The `.env` file should contain:
-
-```text
-GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/project/terraform/keys/my-creds.json
-```
-
-This is the path inside the Airflow container.
 
 ### 8.4 Build the custom Airflow image
 
@@ -892,128 +918,50 @@ terraform validate
 terraform plan
 terraform apply
 ```
-
 ---
+## 10. Google Cloud Access and Credentials
 
-## 10. Google Cloud Credentials and Keys
+The repository does not include Google Cloud credentials.
 
-Terraform and the cloud pipeline need credentials to access Google Cloud.
+Reviewers who only inspect the code or verify results in the Google Cloud Console need access to the Google Cloud project:
 
-### 10.1 For project contributors
-
-Team members who want to run Terraform or execute the cloud pipeline need their own Google Cloud service account key.
-
-Steps:
-
-1. Open Google Cloud Console.
-2. Select the project:
-
-   ```text
-   ProjectMobile
-   projectmobile-494518
-   ```
-
-3. Go to:
-
-   ```text
-   IAM & Admin → Service Accounts
-   ```
-
-4. Create or use a service account with the required permissions.
-
-5. Required roles for the full project:
-
-   ```text
-   Storage Admin
-   BigQuery Admin
-   Service Account User
-   ```
-
-6. To create service account keys, the user also needs:
-
-   ```text
-   Service Account Key Admin
-   ```
-
-7. Create a JSON key:
-
-   ```text
-   Service Account → Keys → Add key → Create new key → JSON
-   ```
-
-8. Store the downloaded key locally as:
-
-   ```text
-   terraform/keys/my-creds.json
-   ```
-
-9. Create the local Terraform variable file:
-
-   ```bash
-   cd terraform
-   cp terraform.tfvars.example terraform.tfvars
-   ```
-
-10. The local `terraform.tfvars` should contain:
-
-   ```hcl
-   credentials = "keys/my-creds.json"
-   ```
-
-The key file is local only and must never be uploaded to GitHub.
-
-### 10.2 For people who only want to review the code
-
-People who only want to review the code or documentation do not need a Google Cloud key.
-
-They can clone the repository and inspect the code without creating credentials.
-
-They only need a key if they want to:
-
+```text
+projectmobile-494518
+```
+A local service account JSON key is only required to:
 - run Terraform
-- execute the cloud Airflow DAGs
+- execute the cloud Airflow DAGs locally
 - upload data to Google Cloud Storage
 - load data into BigQuery
 
+The key file must be stored locally as:
+
+```text
+terraform/keys/my-creds.json
+```
+
+This file must never be committed to GitHub.
+
+The `.env` file should point to the key inside the Airflow container:
+
+```text
+GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/project/terraform/keys/my-creds.json
+```
 ---
 
 ## 11. Environment Variables and Secrets
 
-The project uses a `.env.example` file to document required environment variables.
+The project uses `.env.example` to document required environment variables.
 
-A local `.env` file must be created from `.env.example` before running Docker Compose.
+Each user creates a local `.env` file: 
 
-The `.env` file contains local configuration such as:
-
-- PostgreSQL user and password
-- pgAdmin login values
-- Airflow UI login values
-- Google Cloud project and bucket names
-- BigQuery dataset and table names
-- path to the local Google Cloud service account key inside the container
-
-The `.env` file must not be committed.
-
-### 11.1 Why this is done
-
-Credentials and local environment-specific values should not be hardcoded directly into Docker Compose files, Airflow DAGs or Bash commands.
-
-Instead:
-
-- example values are documented in `.env.example`
-- local values are stored in `.env`
-- Docker Compose injects them into the containers
-- Airflow DAGs read them as environment variables
-
-This improves reproducibility while avoiding committing local secrets.
-
-### 11.2 Important files
-
-Committed:
-
-```text
-.env.example
+```bash
+cp .env.example .env
 ```
+
+The `.env` file contains local settings for PostgreSQL, pgAdmin, Airflow, Google Cloud and BigQuery.
+
+The `.env` file and Google credentials are local only and must not be committed.
 
 Not committed:
 
@@ -1025,7 +973,6 @@ terraform/terraform.tfstate
 terraform/terraform.tfstate.backup
 terraform/.terraform/
 ```
-
 ---
 
 ## 12. Repository Structure
@@ -1044,12 +991,14 @@ DENG_Mobility/
 │   └── transform_gcs_to_bigquery.py
 │
 ├── data/
-│   ├── traffic_zurich.csv
-│   └── traffic_basel.csv
+│    └── traffic_zurich.csv
 │
 ├── images/
 │   ├── airflow_howto.png
 │   └── airflow_tasks.png
+│
+├── presentations/
+│   └── DENG_Presentation_Final.pptx
 │
 ├── initdb/
 │   └── create_databases.sql
@@ -1075,12 +1024,23 @@ DENG_Mobility/
 
 ---
 
-## 13. Notes and Future Improvements
+## 13. Project Presentation
+
+The final project presentation is available here:
+
+[Download the final project presentation](presentations/DENG_Presentation_Final.pptx)
+
+The presentation summarizes the Zurich mobility pipeline, including the local and cloud architecture, Terraform setup, BigQuery transformation, verification steps, and first Looker Studio dashboard insights.
+
+The dashboard shows how the final BigQuery tables can be used to compare bicycle and pedestrian traffic by weather, weekday/weekend, year, month, and location.
+
+---
+
+## 14. Notes and Future Improvements
 
 ### Notes
 
-- The final project focuses on Zurich.
-- Basel data exists in the repository but is not part of the final pipeline.
+- The final project focuses on Zurich. 
 - The local pipeline is kept for reproducibility and development.
 - The final cloud pipeline uses Google Cloud Storage as data lake and BigQuery as data warehouse.
 - Google Cloud credentials and Terraform state files are intentionally excluded from GitHub.
@@ -1089,7 +1049,7 @@ DENG_Mobility/
 
 ### Future Improvements
 
-- Add Basel as a second city for comparison.
+- For example, add Basel as a second city for comparison.
 - Make the 2026 weather end date dynamic based on the Airflow execution date.
 - Add incremental loading instead of refreshing full yearly files.
 - Build a dashboard on top of the BigQuery tables.
@@ -1099,7 +1059,7 @@ DENG_Mobility/
 
 ---
 
-## 14. Authors
+## 15. Authors
 
 - Susanne Pfenninger
 - Diego Gonzalez

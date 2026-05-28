@@ -32,6 +32,10 @@ htmlcov/
 ~$*.xlsx
 ~$*.pptx
 
+# Project presentation
+!presentations/
+!presentations/DENG_Presentation_Final.pptx
+
 # Lokale generierte Dateien
 output.parquet
 
