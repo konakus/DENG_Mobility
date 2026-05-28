@@ -34,7 +34,7 @@ htmlcov/
 
 # Project presentation
 !presentations/
-!presentations/DENG_Presentation_Final.pptx
+!presentations/DENG_Presentation_Final.pdf
 
 # Lokale generierte Dateien
 output.parquet

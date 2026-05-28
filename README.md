@@ -1,5 +1,7 @@
-# DENG Mobility Project – Zurich Pipeline (Final)
-Project status as of May 26, 2026
+# DENG Mobility Project – Zurich Pipeline
+
+Final project for the Data Engineering module at HSLU.  
+Project status: May 28, 2026.
 
 ## Table of Contents
 
@@ -134,8 +136,7 @@ BigQuery Data Warehouse
 
 ### 3.3 Airflow DAGs
 
-The project contains three Airflow DAGs:
-(Google Cloud Storage: GCS)
+The project contains three Airflow DAGs.  
 
 | DAG                          | Purpose                   |
 |------------------------------|---------------------------|
@@ -524,7 +525,6 @@ The final datasets support the use case by providing clean analytical tables wit
 ## 7. Verification
 
 ### 7.1 Local PostgreSQL Verification
-(as described in Section 4.4)
 
 Open pgAdmin:
 
@@ -551,7 +551,6 @@ For the local pipeline, the expected result is:
 ```
 
 ### 7.2 Cloud Storage Verification
-(as described in Section 5.1)
 
 Open Google Cloud Console and navigate to:
 
@@ -569,7 +568,6 @@ raw/weather/year=2026/weather_zurich_2026.csv
 ```
 
 ### 7.3 BigQuery Verification: City-Level Table
-(as described in Section 5.3)
 
 Open BigQuery in the Google Cloud Console and navigate to:
 
@@ -702,9 +700,9 @@ The `.env` file is local only and must not be committed.
 
 ### 8.3 Google Cloud access
 
-The repository does not include Google Cloud credentials.
-
-A local service account JSON key is only required to run the cloud pipeline locally. See Section 10 for details.
+The repository does not include Google Cloud credentials.  
+A local service account JSON key is only required to run Terraform or the cloud Airflow DAGs locally.  
+See Section 10 for details.
 
 
 ### 8.4 Build the custom Airflow image
@@ -998,7 +996,7 @@ DENG_Mobility/
 │   └── airflow_tasks.png
 │
 ├── presentations/
-│   └── DENG_Presentation_Final.pptx
+│   └── DENG_Presentation_Final.pdf
 │
 ├── initdb/
 │   └── create_databases.sql
@@ -1028,7 +1026,7 @@ DENG_Mobility/
 
 The final project presentation is available here:
 
-[Download the final project presentation](presentations/DENG_Presentation_Final.pptx)
+[Download the final project presentation](presentations/DENG_Presentation_Final.pdf)
 
 The presentation summarizes the Zurich mobility pipeline, including the local and cloud architecture, Terraform setup, BigQuery transformation, verification steps, and first Looker Studio dashboard insights.
 
