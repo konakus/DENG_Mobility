@@ -1,1 +1,5 @@
-credentials = "keys/my-creds.json" 
+credentials  = "keys/my-creds.json"
+project      = "your-gcp-project-id"
+bucket_name  = "your-globally-unique-bucket-name"
+dataset_name = "zurich_mobility_warehouse"
+region       = "europe-west6"

@@ -663,18 +663,154 @@ raw/weather/year=2026/weather_zurich_2026.csv
 
 ## 8. Reproducibility Guide
 
-This section explains how another person can reproduce the project.
+This section explains how another person can reproduce the final project in their own Google Cloud project.
 
-### 8.1 Clone the repository
+The reproduction starts from a clean clone of the repository, creates the required cloud infrastructure with Terraform, runs the Airflow pipelines, and finally verifies the two BigQuery output tables.
+
+---
+
+### 8.1 Reproduction Goal
+
+After completing this guide, the reviewer should have the following resources in their own Google Cloud project:
+
+```text
+Google Cloud Storage bucket:
+<your-globally-unique-bucket-name>
+
+BigQuery dataset:
+zurich_mobility_warehouse
+
+BigQuery tables:
+mobility_weather_daily
+mobility_weather_daily_by_station
+```
+
+The high-level workflow is:
+
+```text
+Clone repository
+→ create or select a Google Cloud project
+→ create a local .env file
+→ create a Google Cloud service account key
+→ configure Terraform variables
+→ provision the GCS bucket and BigQuery dataset with Terraform
+→ build the custom Airflow image
+→ start Docker Compose
+→ run the cloud_data_lake_ingestion DAG
+→ run the cloud_warehouse_transformation DAG
+→ verify both BigQuery tables
+```
+
+---
+
+### 8.2 Prerequisites
+
+The reviewer needs:
+
+* Git
+* Docker Desktop
+* Terraform
+* A Google Cloud account
+* A Google Cloud project with billing enabled
+* Permissions in that Google Cloud project to create:
+
+  * a Cloud Storage bucket
+  * a BigQuery dataset
+  * a service account
+  * a service account key
+
+The following Google Cloud APIs should be enabled in the project:
+
+```text
+Cloud Storage API
+BigQuery API
+IAM API
+```
+
+If these APIs are not enabled, Terraform or the pipeline may fail with permission or API-not-enabled errors.
+
+---
+
+### 8.3 Clone the Repository
 
 ```bash
 git clone https://github.com/konakus/DENG_Mobility.git
 cd DENG_Mobility
 ```
 
-### 8.2 Create the local `.env` file
+---
 
-The repository includes an example environment file:
+### 8.4 Create or Select a Google Cloud Project
+
+Create a new Google Cloud project or select an existing project that you own.
+
+The project must have billing enabled.
+
+In the Google Cloud Console, note the project ID. This value will be used later as:
+
+```text
+GCP_PROJECT_ID
+```
+
+Example:
+
+```text
+my-review-project-123456
+```
+
+The following Google Cloud APIs should be enabled for the project:
+
+```text
+Cloud Storage API
+BigQuery API
+IAM API
+```
+
+If the APIs are not enabled manually, Terraform or the pipeline may fail with permission or API-not-enabled errors.
+
+---
+
+### 8.5 Create a Service Account Key
+
+Create or use a service account in your own Google Cloud project.
+
+The service account needs permissions for:
+
+```text
+Storage Admin
+BigQuery Admin
+Service Account User
+```
+
+Then create a JSON key for this service account.
+
+Store the key locally as:
+
+```text
+terraform/keys/my-creds.json
+```
+
+If the folder does not exist yet, create it first.
+
+On macOS/Linux:
+
+```bash
+mkdir -p terraform/keys
+```
+
+On Windows PowerShell:
+
+```powershell
+mkdir terraform\keys
+```
+
+The key file must not be committed to GitHub.
+
+---
+
+### 8.6 Create the Local `.env` File
+
+The repository contains an example environment file:
 
 ```text
 .env.example
@@ -694,18 +830,114 @@ On Windows PowerShell:
 Copy-Item .env.example .env
 ```
 
-Then adjust the values in `.env` if needed.
+Then edit `.env`.
 
-The `.env` file is local only and must not be committed.
+The following values must be adapted to your own Google Cloud project:
 
-### 8.3 Google Cloud access
+```env
+GCP_PROJECT_ID=<your-gcp-project-id>
+GCS_BUCKET_NAME=<your-globally-unique-bucket-name>
+BQ_DATASET_ID=zurich_mobility_warehouse
+BQ_CITY_TABLE_ID=mobility_weather_daily
+BQ_STATION_TABLE_ID=mobility_weather_daily_by_station
+GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/project/terraform/keys/my-creds.json
+```
 
-The repository does not include Google Cloud credentials.  
-A local service account JSON key is only required to run Terraform or the cloud Airflow DAGs locally.  
-See Section 10 for details.
+Important: the Cloud Storage bucket name must be globally unique across Google Cloud. You cannot reuse the bucket name from another project.
 
+Example:
 
-### 8.4 Build the custom Airflow image
+```env
+GCP_PROJECT_ID=my-review-project-123456
+GCS_BUCKET_NAME=zurich-mobility-data-lake-reviewer-123456
+BQ_DATASET_ID=zurich_mobility_warehouse
+BQ_CITY_TABLE_ID=mobility_weather_daily
+BQ_STATION_TABLE_ID=mobility_weather_daily_by_station
+GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/project/terraform/keys/my-creds.json
+```
+
+The remaining local values such as PostgreSQL, pgAdmin and Airflow credentials can be kept as provided or changed if desired.
+
+The `.env` file must not be committed.
+
+---
+
+### 8.7 Configure Terraform Variables
+
+Go to the Terraform folder:
+
+```bash
+cd terraform
+```
+
+Create a local Terraform variable file from the example file.
+
+On macOS/Linux:
+
+```bash
+cp terraform.tfvars.example terraform.tfvars
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item terraform.tfvars.example terraform.tfvars
+```
+
+Edit `terraform.tfvars`.
+
+Example:
+
+```hcl
+credentials  = "keys/my-creds.json"
+project      = "<your-gcp-project-id>"
+bucket_name  = "<your-globally-unique-bucket-name>"
+dataset_name = "zurich_mobility_warehouse"
+region       = "europe-west6"
+```
+
+The values should match the values used in `.env`:
+
+```text
+.env GCP_PROJECT_ID  = terraform.tfvars project
+.env GCS_BUCKET_NAME = terraform.tfvars bucket_name
+.env BQ_DATASET_ID   = terraform.tfvars dataset_name
+```
+
+The file `terraform.tfvars` must not be committed.
+
+---
+
+### 8.8 Provision Cloud Infrastructure with Terraform
+
+From inside the `terraform/` folder, run:
+
+```bash
+terraform init
+terraform fmt
+terraform validate
+terraform plan
+terraform apply
+```
+
+Confirm the apply step when Terraform asks for approval.
+
+Terraform creates:
+
+```text
+Google Cloud Storage bucket
+BigQuery dataset
+```
+
+After Terraform has completed successfully, go back to the project root:
+
+```bash
+cd ..
+```
+
+---
+
+### 8.9 Build the Custom Airflow Image
 
 The project uses a custom Airflow image because the default Airflow image does not include all required Google Cloud Python packages.
 
@@ -715,13 +947,17 @@ Build the image:
 docker build -f Dockerfile.airflow -t deng_airflow:2.9.3 .
 ```
 
-### 8.5 Start Docker Compose
+---
+
+### 8.10 Start Docker Compose
+
+Start the local environment:
 
 ```bash
 docker compose up -d
 ```
 
-Check running services:
+Check the running services:
 
 ```bash
 docker compose ps
@@ -736,38 +972,91 @@ airflow_webserver
 airflow_scheduler
 ```
 
-### 8.6 Check environment variables inside Airflow
+The `airflow_init` container may show as exited. This is normal after it has initialized the Airflow database and created the Airflow user.
+
+---
+
+### 8.11 Check Environment Variables Inside Airflow
 
 Run:
 
 ```bash
-docker compose exec airflow-scheduler bash -lc 'echo $GCS_BUCKET_NAME && echo $BQ_CITY_TABLE_ID && echo $BQ_STATION_TABLE_ID'
+docker compose exec airflow-scheduler bash -lc 'echo $GCS_BUCKET_NAME && echo $GCP_PROJECT_ID && echo $BQ_CITY_TABLE_ID && echo $BQ_STATION_TABLE_ID'
 ```
 
 Expected output:
 
 ```text
-project-mobile-zurich-data-lake-494518
+<your-globally-unique-bucket-name>
+<your-gcp-project-id>
 mobility_weather_daily
 mobility_weather_daily_by_station
 ```
 
-### 8.7 Open Airflow
+Also check that the service account key is visible inside the container:
+
+```bash
+docker compose exec airflow-scheduler ls -l /opt/airflow/project/terraform/keys
+```
+
+Expected file:
+
+```text
+my-creds.json
+```
+
+---
+
+### 8.12 Check Airflow DAG Imports
+
+Run:
+
+```bash
+docker compose exec airflow-scheduler airflow dags list-import-errors
+```
+
+Expected output:
+
+```text
+No data found
+```
+
+Then list the available DAGs:
+
+```bash
+docker compose exec airflow-scheduler airflow dags list
+```
+
+The following DAGs should be visible:
+
+```text
+zurich_mobility_pipeline
+cloud_data_lake_ingestion
+cloud_warehouse_transformation
+```
+
+---
+
+### 8.13 Open Airflow
+
+Open Airflow in the browser:
 
 ```text
 http://localhost:8086
 ```
 
-Login with the credentials from the local `.env` file:
+Log in with the credentials from the local `.env` file:
 
 ```text
 AIRFLOW_USERNAME
 AIRFLOW_PASSWORD
 ```
 
-### 8.8 Run the cloud data lake ingestion DAG
+---
 
-In Airflow, enable and trigger:
+### 8.14 Run the Cloud Data Lake Ingestion DAG
+
+In Airflow, enable and trigger the DAG:
 
 ```text
 cloud_data_lake_ingestion
@@ -782,9 +1071,22 @@ upload_weather_2025_to_gcs
 upload_weather_2026_to_gcs
 ```
 
-### 8.9 Run the cloud warehouse transformation DAG
+This DAG downloads the raw source data and uploads it to the reviewer’s own Google Cloud Storage bucket.
 
-In Airflow, enable and trigger:
+The expected GCS structure is:
+
+```text
+raw/traffic/year=2025/traffic_zurich_2025.csv
+raw/traffic/year=2026/traffic_zurich_2026.csv
+raw/weather/year=2025/weather_zurich_2025.csv
+raw/weather/year=2026/weather_zurich_2026.csv
+```
+
+---
+
+### 8.15 Run the Cloud Warehouse Transformation DAG
+
+After the data lake ingestion DAG has completed successfully, enable and trigger:
 
 ```text
 cloud_warehouse_transformation
@@ -796,26 +1098,66 @@ Expected successful task:
 transform_gcs_to_bigquery
 ```
 
-This task creates or refreshes both BigQuery tables:
+This DAG reads the raw files from Google Cloud Storage, transforms the data and loads two analytical tables into BigQuery:
 
 ```text
 mobility_weather_daily
 mobility_weather_daily_by_station
 ```
 
-### 8.10 Verify the result in BigQuery
+---
 
-City-level table:
+### 8.16 Verify Cloud Storage Output
+
+Open Google Cloud Console and navigate to:
+
+```text
+Cloud Storage → Buckets → <your-globally-unique-bucket-name>
+```
+
+The following files should exist:
+
+```text
+raw/traffic/year=2025/traffic_zurich_2025.csv
+raw/traffic/year=2026/traffic_zurich_2026.csv
+raw/weather/year=2025/weather_zurich_2025.csv
+raw/weather/year=2026/weather_zurich_2026.csv
+```
+
+Optional terminal verification:
+
+```bash
+docker compose exec airflow-scheduler python -c "from google.cloud import storage; import os; c=storage.Client(); b=c.bucket(os.environ['GCS_BUCKET_NAME']); [print(x.name, x.size) for x in b.list_blobs(prefix='raw/')]"
+```
+
+---
+
+### 8.17 Verify BigQuery Output
+
+Open Google Cloud Console and navigate to:
+
+```text
+BigQuery → <your-gcp-project-id> → zurich_mobility_warehouse
+```
+
+The following two tables should exist:
+
+```text
+mobility_weather_daily
+mobility_weather_daily_by_station
+```
+
+City-level table verification:
 
 ```sql
 SELECT
   COUNT(*) AS row_count,
   MIN(date) AS min_date,
   MAX(date) AS max_date
-FROM `projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily`;
+FROM `<your-gcp-project-id>.zurich_mobility_warehouse.mobility_weather_daily`;
 ```
 
-Station-level table:
+Station-level table verification:
 
 ```sql
 SELECT
@@ -823,10 +1165,23 @@ SELECT
   COUNT(DISTINCT station_id) AS station_count,
   MIN(date) AS min_date,
   MAX(date) AS max_date
-FROM `projectmobile-494518.zurich_mobility_warehouse.mobility_weather_daily_by_station`;
+FROM `<your-gcp-project-id>.zurich_mobility_warehouse.mobility_weather_daily_by_station`;
 ```
 
-### 8.11 Stop the project
+Preview the station-level table:
+
+```sql
+SELECT *
+FROM `<your-gcp-project-id>.zurich_mobility_warehouse.mobility_weather_daily_by_station`
+ORDER BY date, station_id
+LIMIT 20;
+```
+
+---
+
+### 8.18 Stop the Project
+
+To stop the local Docker environment:
 
 ```bash
 docker compose down
@@ -834,17 +1189,32 @@ docker compose down
 
 This stops the containers but keeps Docker volumes.
 
-### 8.12 Full reset
+---
+
+### 8.19 Full Local Reset
+
+To fully reset the local Docker environment:
 
 ```bash
 docker compose down -v
 ```
 
-Warning: This deletes local Docker volumes, including the local PostgreSQL database.
+Warning: this deletes local Docker volumes, including the local PostgreSQL database.
 
 After a full reset, restart the Docker environment and rerun the required Airflow DAGs.
 
 ---
+
+### 8.20 Important Notes
+
+* This guide assumes that the reviewer reproduces the project in their own Google Cloud project.
+* Terraform is required because the reviewer creates the cloud infrastructure in their own project.
+* The reviewer must choose their own globally unique Cloud Storage bucket name.
+* The values in `.env` and `terraform/terraform.tfvars` must match.
+* The service account key must be stored locally as `terraform/keys/my-creds.json`.
+* The files `.env`, `terraform.tfvars`, Terraform state files and service account keys must not be committed.
+* The Airflow DAGs create or overwrite the BigQuery output tables during execution.
+
 
 ## 9. Cloud Infrastructure with Terraform
 
